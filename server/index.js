@@ -1,57 +1,19 @@
+require("dotenv").config();
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const cors = require("cors");
 const mongoose = require("mongoose");
+const cors = require("cors");
 
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST"]
+}));
 
-app.get("/", (req, res) => {
-  res.send("Chat Server with MongoDB is Running 🚀");
-});
-
-/* =========================
-   MongoDB Connection
-========================= */
-
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-  .then(() => console.log("MongoDB Connected ✅"))
-  .catch(err => console.log(err));
-
-/* =========================
-   Message Schema
-========================= */
-
-const messageSchema = new mongoose.Schema({
-  user: String,
-  message: String,
-  image: String,
-  timestamp: {
-    type: Date,
-    default: Date.now
-  }
-});
-
-const Message = mongoose.model("Message", messageSchema);
-
-/* =========================
-   User Control
-========================= */
-
-let users = new Set();
-const MAX_USERS = 3;
-
-/* =========================
-   Socket Setup
-========================= */
-
+// 🔌 Socket Setup
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -59,61 +21,89 @@ const io = new Server(server, {
   }
 });
 
+// 🟢 MongoDB Connect
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch(err => console.log(err));
+
+// 🟢 Chat Schema
+const chatSchema = new mongoose.Schema({
+  name: String,
+  message: String,
+  time: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const Chat = mongoose.model("Chat", chatSchema);
+
+// 👥 Only 3 users allowed
+let activeUsers = [];
+
+// 🚀 Socket Logic
 io.on("connection", (socket) => {
 
-  socket.on("join", async (username) => {
+  console.log("User connected:", socket.id);
 
-    if (!users.has(username) && users.size >= MAX_USERS) {
-      socket.emit("room-full");
+  // 📌 When user joins
+  socket.on("join", async (name) => {
+
+    if (activeUsers.length >= 3) {
+      socket.emit("roomFull");
       return;
     }
 
-    socket.username = username;
-    users.add(username);
+    socket.username = name;
+    activeUsers.push(name);
 
-    // 🔁 Send old chats from DB
-    const oldMessages = await Message.find().sort({ timestamp: 1 }).limit(100);
-    socket.emit("chat-history", oldMessages);
+    // Send old chats
+    const oldChats = await Chat.find().sort({ time: 1 });
+    socket.emit("loadOldChats", oldChats);
 
-    socket.broadcast.emit("receive-message", {
-      user: "System",
-      message: username + " joined",
-      notify: true
-    });
+    io.emit("userList", activeUsers);
   });
 
-  socket.on("send-message", async (data) => {
+  // 💬 When message sent
+  socket.on("sendMessage", async (msg) => {
 
-    if (!socket.username) return;
-
-    const newMessage = new Message({
-      user: socket.username,
-      message: data.message || "",
-      image: data.image || ""
+    const newChat = new Chat({
+      name: socket.username,
+      message: msg
     });
 
-    await newMessage.save();   // 💾 Permanent Save
+    await newChat.save();
 
-    // Send to sender
-    socket.emit("receive-message", {
-      ...newMessage._doc,
-      notify: false
+    // Send message to all
+    io.emit("receiveMessage", newChat);
+
+    // 🔔 Send notification to other 2 users
+    socket.broadcast.emit("notification", {
+      from: socket.username,
+      message: msg
     });
 
-    // Send to others
-    socket.broadcast.emit("receive-message", {
-      ...newMessage._doc,
-      notify: true
-    });
   });
 
+  // ❌ When user disconnect
   socket.on("disconnect", () => {
-    console.log(socket.username + " disconnected");
+
+    if (socket.username) {
+      activeUsers = activeUsers.filter(u => u !== socket.username);
+      io.emit("userList", activeUsers);
+    }
+
+    console.log("User disconnected:", socket.id);
   });
 
 });
 
+app.get("/", (req, res) => {
+  res.send("Chat Server is running 🚀");
+});
+
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () =>
-  console.log("Server running on port " + PORT)
-);
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
