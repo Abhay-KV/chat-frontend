@@ -80,10 +80,10 @@
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
   <script>
-  const socket = io("https://chat-frontend-x3ik.onrender.com"), {
-      transports: ["websocket"],
-      reconnection: true
-    });
+const socket = io("https://chat-frontend-x3ik.onrender.com", {
+  transports: ["websocket"],
+  reconnection: true
+});
 
     const chat = document.getElementById("chat");
 
