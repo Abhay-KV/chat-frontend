@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Permanent Chat App</title>
+  <style>
+    body {
+      font-family: Arial;
+      background: #f2f2f2;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .chat-container {
+      width: 420px;
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      display: flex;
+      flex-direction: column;
+    }
+
+    #chat {
+      height: 350px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin-bottom: 10px;
+      background: #fafafa;
+    }
+
+    #chat div {
+      margin-bottom: 10px;
+    }
+
+    input[type="text"] {
+      padding: 8px;
+      width: 100%;
+      margin-bottom: 5px;
+    }
+
+    input[type="file"] {
+      margin-bottom: 5px;
+    }
+
+    button {
+      padding: 8px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #45a049;
+    }
+
+    img {
+      margin-top: 5px;
+      border-radius: 5px;
+      max-width: 200px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="chat-container">
+    <h3>Permanent Chat App</h3>
+    <div id="chat"></div>
+
+    <input type="text" id="msg" placeholder="Type message..." />
+    <input type="file" id="imageInput" accept="image/*" />
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <script>
+    const socket = io("https://anonymous-chat-3-ybkr.onrender.com", {
+      transports: ["websocket"],
+      reconnection: true
+    });
+
+    const chat = document.getElementById("chat");
+
+    /* =========================
+       NOTIFICATION SETUP
+    ========================= */
+
+    if ("Notification" in window) {
+      if (Notification.permission !== "granted") {
+        Notification.requestPermission();
+      }
+    }
+
+    /* =========================
+       USERNAME PROMPT
+    ========================= */
+
+    let username = prompt("Enter your name:");
+    while (!username) {
+      username = prompt("Name required! Enter your name:");
+    }
+
+    socket.emit("join", username);
+
+    /* =========================
+       ROOM FULL
+    ========================= */
+
+    socket.on("room-full", () => {
+      alert("Room full! Only 3 users allowed.");
+      socket.disconnect();
+    });
+
+    /* =========================
+       LOAD OLD MESSAGES
+    ========================= */
+
+    socket.on("chat-history", (history) => {
+      chat.innerHTML = "";
+      history.forEach(displayMessage);
+    });
+
+    /* =========================
+       RECEIVE MESSAGE
+    ========================= */
+
+    socket.on("receive-message", (data) => {
+
+      displayMessage(data);
+
+      // 🔔 Show notification to other users only
+      if (
+        data.notify &&
+        Notification.permission === "granted"
+      ) {
+        new Notification(data.user + " says:", {
+          body: data.message ? data.message : "Sent an image",
+          icon: "https://cdn-icons-png.flaticon.com/512/733/733585.png"
+        });
+      }
+    });
+
+    /* =========================
+       DISPLAY MESSAGE FUNCTION
+    ========================= */
+
+    function displayMessage(data) {
+      const div = document.createElement("div");
+      div.innerHTML = "<b>" + data.user + ":</b> " + (data.message || "");
+
+      if (data.image) {
+        const img = document.createElement("img");
+        img.src = data.image;
+        div.appendChild(document.createElement("br"));
+        div.appendChild(img);
+      }
+
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    /* =========================
+       SEND MESSAGE
+    ========================= */
+
+    function sendMessage() {
+      const message = document.getElementById("msg").value;
+      const file = document.getElementById("imageInput").files[0];
+
+      if (!message && !file) return;
+
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          socket.emit("send-message", {
+            message: message,
+            image: e.target.result
+          });
+        };
+        reader.readAsDataURL(file);
+      } else {
+        socket.emit("send-message", { message: message });
+      }
+
+      document.getElementById("msg").value = "";
+      document.getElementById("imageInput").value = "";
+    }
+
+    document.getElementById("msg").addEventListener("keypress", function (e) {
+      if (e.key === "Enter") {
+        sendMessage();
+      }
+    });
+
+    /* =========================
+       DEBUG LOGS
+    ========================= */
+
+    socket.on("connect", () => {
+      console.log("Connected:", socket.id);
+    });
+
+    socket.on("connect_error", (err) => {
+      console.log("Connection Error:", err.message);
+    });
+
+  </script>
+
+</body>
+
+</html>
